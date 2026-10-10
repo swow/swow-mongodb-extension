@@ -21,6 +21,7 @@
 #include <Zend/zend_interfaces.h>
 
 #include "phongo.h"
+#include "phongo_runtime.h"
 #include "phongo_bson_encode.h"
 #include "phongo_client.h"
 #include "phongo_error.h"
@@ -671,6 +672,7 @@ void phongo_server_init_ce(INIT_FUNC_ARGS)
 	phongo_handler_server.compare        = phongo_server_compare_objects;
 	phongo_handler_server.get_debug_info = phongo_server_get_debug_info;
 	phongo_handler_server.free_obj       = phongo_server_free_object;
+	phongo_runtime_wrap_handlers(phongo_server_ce, &phongo_handler_server);
 	phongo_handler_server.offset         = offsetof(phongo_server_t, std);
 }
 

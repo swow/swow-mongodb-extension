@@ -23,6 +23,7 @@
 #include "php_array_api.h"
 
 #include "phongo.h"
+#include "phongo_runtime.h"
 #include "phongo_bson_encode.h"
 #include "phongo_client.h"
 #include "phongo_error.h"
@@ -693,6 +694,7 @@ void phongo_session_init_ce(INIT_FUNC_ARGS)
 	memcpy(&phongo_handler_session, phongo_get_std_object_handlers(), sizeof(zend_object_handlers));
 	phongo_handler_session.get_debug_info = phongo_session_get_debug_info;
 	phongo_handler_session.free_obj       = phongo_session_free_object;
+	phongo_runtime_wrap_handlers(phongo_session_ce, &phongo_handler_session);
 	phongo_handler_session.offset         = offsetof(phongo_session_t, std);
 }
 

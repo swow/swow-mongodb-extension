@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <mongoc/mongoc-runtime.h>
 #include <common-atomic-private.h>
 #include <common-string-private.h>
 #include <mongoc/mongoc-async-cmd-private.h>
@@ -1323,7 +1324,7 @@ mongoc_topology_scanner_node_setup_tcp(mongoc_topology_scanner_node_t *node, bso
       hints.ai_flags = 0;
       hints.ai_protocol = 0;
 
-      s = getaddrinfo(host->host, portstr, &hints, &node->dns_results);
+      s = mongoc_runtime_getaddrinfo(host->host, portstr, &hints, &node->dns_results);
 
       if (s != 0) {
          mongoc_counter_dns_failure_inc();

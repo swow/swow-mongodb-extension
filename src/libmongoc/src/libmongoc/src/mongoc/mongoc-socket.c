@@ -15,6 +15,7 @@
  */
 
 
+#include <mongoc/mongoc-runtime.h>
 #include <mongoc/mongoc-counters-private.h>
 #include <mongoc/mongoc-errno-private.h>
 #include <mongoc/mongoc-socket-private.h>
@@ -201,7 +202,22 @@ _mongoc_socket_wait(mongoc_socket_t *sock, /* IN */
       }
 
 #ifdef _WIN32
-      if (timeout == -1) {
+      if (mongoc_runtime_hooks() && timeout != 0) {
+         WSAPOLLFD pfd = {sock->sd, (SHORT) events, 0};
+         ret = mongoc_runtime_poll(&pfd, 1, timeout);
+         FD_ZERO(&read_fds);
+         FD_ZERO(&write_fds);
+         FD_ZERO(&error_fds);
+         if (pfd.revents & (POLLIN | POLLHUP)) {
+            FD_SET(sock->sd, &read_fds);
+         }
+         if (pfd.revents & POLLOUT) {
+            FD_SET(sock->sd, &write_fds);
+         }
+         if (pfd.revents & (POLLERR | POLLNVAL)) {
+            FD_SET(sock->sd, &error_fds);
+         }
+      } else if (timeout == -1) {
          /* not WSAPoll: daniel.haxx.se/blog/2012/10/10/wsapoll-is-broken */
          ret = select(0 /*unused*/, &read_fds, &write_fds, &error_fds, NULL);
       } else {
@@ -217,7 +233,7 @@ _mongoc_socket_wait(mongoc_socket_t *sock, /* IN */
          ret = -1;
       }
 #else
-      ret = poll(&pfd, 1, timeout);
+      ret = mongoc_runtime_poll(&pfd, 1, timeout);
 #endif
 
       if (ret > 0) {
@@ -301,6 +317,20 @@ mongoc_socket_poll(mongoc_socket_poll_t *sds, /* IN */
    BSON_ASSERT(sds);
 
 #ifdef _WIN32
+   if (mongoc_runtime_hooks() && timeout != 0) {
+      WSAPOLLFD *fds = BSON_ARRAY_ALLOC(nsds, WSAPOLLFD);
+      for (size_t i = 0; i < nsds; i++) {
+         fds[i].fd = sds[i].socket->sd;
+         fds[i].events = (SHORT) sds[i].events;
+         fds[i].revents = 0;
+      }
+      ret = mongoc_runtime_poll(fds, nsds, timeout);
+      for (size_t i = 0; i < nsds; i++) {
+         sds[i].revents = fds[i].revents;
+      }
+      bson_free(fds);
+      return ret;
+   }
    FD_ZERO(&read_fds);
    FD_ZERO(&write_fds);
    FD_ZERO(&error_fds);
@@ -347,7 +377,7 @@ mongoc_socket_poll(mongoc_socket_poll_t *sds, /* IN */
       pfds[i].revents = 0;
    }
 
-   ret = poll(pfds, nsds, timeout);
+   ret = mongoc_runtime_poll(pfds, nsds, timeout);
    for (size_t i = 0u; i < nsds; i++) {
       sds[i].revents = pfds[i].revents;
    }

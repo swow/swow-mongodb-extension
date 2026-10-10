@@ -85,3 +85,13 @@ secrets-export.sh
 
 !src/libmongoc/src/common/src/mlib/config.h
 !src/libmongoc/src/libbson/src/bson/config.h.in
+
+# Expanded distributions also contain generated library headers.
+/src/libmongoc/src/common/src/common-config.h
+/src/libmongoc/src/libbson/src/bson/version.h
+/src/libmongoc/src/libmongoc/src/mongoc/mongoc-config.h
+/src/libmongoc/src/libmongoc/src/mongoc/mongoc-config-private.h
+/src/libmongoc/src/libmongoc/src/mongoc/mongoc-version.h
+/src/libmongocrypt/src/mongocrypt-config.h
+/configure~
+/config.h.in~

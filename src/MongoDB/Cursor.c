@@ -19,6 +19,7 @@
 #include <Zend/zend_interfaces.h>
 
 #include "phongo.h"
+#include "phongo_runtime.h"
 #include "phongo_bson.h"
 #include "phongo_client.h"
 #include "phongo_error.h"
@@ -416,6 +417,7 @@ void phongo_cursor_init_ce(INIT_FUNC_ARGS)
 	memcpy(&phongo_handler_cursor, phongo_get_std_object_handlers(), sizeof(zend_object_handlers));
 	phongo_handler_cursor.get_debug_info = phongo_cursor_get_debug_info;
 	phongo_handler_cursor.free_obj       = phongo_cursor_free_object;
+	phongo_runtime_wrap_handlers(phongo_cursor_ce, &phongo_handler_cursor);
 	phongo_handler_cursor.offset         = offsetof(phongo_cursor_t, std);
 }
 

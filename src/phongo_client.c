@@ -26,6 +26,7 @@
 #include "php_array_api.h"
 
 #include "phongo.h"
+#include "phongo_runtime.h"
 #include "phongo_apm.h"
 #include "phongo_bson_encode.h"
 #include "phongo_client.h"
@@ -1353,18 +1354,13 @@ static bool phongo_manager_set_auto_encryption_opts(phongo_manager_t* manager, z
 }
 #endif /* MONGOC_ENABLE_CLIENT_SIDE_ENCRYPTION */
 
-void phongo_manager_init(phongo_manager_t* manager, const char* uri_string, zval* options, zval* driverOptions)
+static void phongo_manager_init_client(phongo_manager_t* manager, const char* uri_string, zval* options, zval* driverOptions)
 {
 	bson_t        bson_options = BSON_INITIALIZER;
 	mongoc_uri_t* uri          = NULL;
 #ifdef MONGOC_ENABLE_SSL
 	mongoc_ssl_opt_t* ssl_opt = NULL;
 #endif
-
-	if (!(manager->client_hash = phongo_manager_make_client_hash(uri_string, options, driverOptions, &manager->client_hash_len))) {
-		/* Exception should already have been thrown and there is nothing to free */
-		return;
-	}
 
 	if (driverOptions && php_array_existsc(driverOptions, "disableClientPersistence")) {
 		manager->use_persistent_client = !php_array_fetchc_bool(driverOptions, "disableClientPersistence");
@@ -1459,6 +1455,28 @@ cleanup:
 		phongo_free_ssl_opt(ssl_opt);
 	}
 #endif
+}
+
+void phongo_manager_init(phongo_manager_t* manager, const char* uri_string, zval* options, zval* driverOptions)
+{
+	if (!(manager->client_hash = phongo_manager_make_client_hash(uri_string, options, driverOptions, &manager->client_hash_len))) {
+		/* Exception should already have been thrown and there is nothing to free */
+		return;
+	}
+	/* Protect the original cache key while construction may suspend in DNS.
+	 * Different keys can construct concurrently; persistence is unchanged. */
+	if (!phongo_runtime_acquire(manager->client_hash, manager->client_hash_len)) {
+		return;
+	}
+	zend_try {
+		phongo_manager_init_client(manager, uri_string, options, driverOptions);
+	} zend_catch {
+		phongo_runtime_forget(manager->client_hash, manager->client_hash_len);
+		phongo_runtime_release(manager->client_hash, manager->client_hash_len);
+		zend_bailout();
+	} zend_end_try();
+	phongo_runtime_forget(manager->client_hash, manager->client_hash_len);
+	phongo_runtime_release(manager->client_hash, manager->client_hash_len);
 }
 
 static void phongo_pclient_reset_once(phongo_pclient_t* pclient, int pid)
@@ -1584,6 +1602,7 @@ static void phongo_pclient_destroy(phongo_pclient_t* pclient)
 		if (EG(flags) & EG_FLAGS_IN_SHUTDOWN) {
 			mongoc_client_set_apm_callbacks(pclient->client, NULL, NULL);
 		}
+		phongo_runtime_forget(&pclient->client, sizeof(pclient->client));
 		mongoc_client_destroy(pclient->client);
 	}
 

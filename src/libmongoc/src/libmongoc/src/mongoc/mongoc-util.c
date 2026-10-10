@@ -19,6 +19,7 @@
 #define _CRT_RAND_S
 #endif
 
+#include <mongoc/mongoc-runtime.h>
 #include <common-md5-private.h>
 #include <common-thread-private.h>
 #include <mongoc/mongoc-client-private.h> // WIRE_VERSION_* macros.
@@ -121,7 +122,7 @@ mongoc_usleep_default_impl(int64_t usec, void *user_data)
 {
    BSON_UNUSED(user_data);
 
-   mlib_sleep_for(usec, us);
+   mongoc_runtime_sleep(usec);
 }
 
 

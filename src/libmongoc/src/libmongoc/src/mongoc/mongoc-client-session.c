@@ -15,6 +15,7 @@
  */
 
 
+#include <mongoc/mongoc-runtime.h>
 #include <common-bson-dsl-private.h>
 #include <mongoc/mongoc-client-private.h>
 #include <mongoc/mongoc-client-session-private.h>
@@ -1274,7 +1275,7 @@ mongoc_client_session_commit_transaction(mongoc_client_session_t *session, bson_
 
       /* Waste the test timeout, if there is one set. */
       if (session->with_txn_timeout_ms) {
-         mlib_sleep_for(session->with_txn_timeout_ms, ms);
+         mongoc_runtime_sleep(session->with_txn_timeout_ms * INT64_C(1000));
       }
 
       RETURN(r);

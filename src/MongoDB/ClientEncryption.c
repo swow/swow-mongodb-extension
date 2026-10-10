@@ -23,6 +23,7 @@
 #include "php_array_api.h"
 
 #include "phongo.h"
+#include "phongo_runtime.h"
 #include "phongo_bson_encode.h"
 #include "phongo_error.h"
 #include "phongo_util.h"
@@ -479,6 +480,7 @@ static void phongo_clientencryption_free_object(zend_object* object)
 	zend_object_std_dtor(&intern->std);
 
 	if (intern->client_encryption) {
+		phongo_runtime_forget(&intern->client_encryption, sizeof(intern->client_encryption));
 		mongoc_client_encryption_destroy(intern->client_encryption);
 	}
 
@@ -520,6 +522,7 @@ void phongo_clientencryption_init_ce(INIT_FUNC_ARGS)
 	memcpy(&phongo_handler_clientencryption, phongo_get_std_object_handlers(), sizeof(zend_object_handlers));
 	phongo_handler_clientencryption.get_debug_info = phongo_clientencryption_get_debug_info;
 	phongo_handler_clientencryption.free_obj       = phongo_clientencryption_free_object;
+	phongo_runtime_wrap_handlers(phongo_clientencryption_ce, &phongo_handler_clientencryption);
 	phongo_handler_clientencryption.offset         = offsetof(phongo_clientencryption_t, std);
 }
 

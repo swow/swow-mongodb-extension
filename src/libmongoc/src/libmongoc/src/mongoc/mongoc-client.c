@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <mongoc/mongoc-runtime.h>
 #include <mongoc/mongoc-config.h>
 
 #include <bson/bson.h>
@@ -228,7 +229,7 @@ _mongoc_get_rr_dnsapi(
    if (prefer_tcp) {
       options |= DNS_QUERY_USE_TCP_ONLY;
    }
-   res = DnsQuery_UTF8(hostname, nst, options, NULL /* IP Address */, &pdns, 0 /* reserved */);
+   res = mongoc_runtime_dns_query(hostname, nst, options, &pdns);
 
    if (res) {
       // Cast signed DNS_STATUS to unsigned DWORD. FormatMessage expects DWORD.
@@ -432,6 +433,7 @@ _mongoc_get_rr_search(const char *hostname,
    ns_rr resource_record;
    bool dns_success;
    bool callback_success = true;
+   bool native_dns = false;
    int num_matching_records;
    uint32_t ttl;
 
@@ -464,6 +466,10 @@ _mongoc_get_rr_search(const char *hostname,
       search_buf = (unsigned char *)bson_malloc(buffer_size);
       BSON_ASSERT(search_buf);
 
+      if (mongoc_runtime_hooks()) {
+         size = mongoc_runtime_res_search(hostname, ns_c_in, nst, search_buf, (int) buffer_size, prefer_tcp);
+      } else {
+      native_dns = true;
 #ifdef MONGOC_HAVE_RES_NSEARCH
       /* thread-safe */
       res_ninit(&state);
@@ -474,6 +480,7 @@ _mongoc_get_rr_search(const char *hostname,
 #elif defined(MONGOC_HAVE_RES_SEARCH)
       size = res_search(hostname, ns_c_in, nst, search_buf, buffer_size);
 #endif
+      }
 
       if (size < 0) {
          DNS_ERROR("Failed to look up %s record \"%s\": %s", rr_type_name, hostname, _mongoc_hstrerror(h_errno));
@@ -541,10 +548,10 @@ done:
 
 #ifdef MONGOC_HAVE_RES_NDESTROY
    /* defined on BSD/Darwin, and only if MONGOC_HAVE_RES_NSEARCH is defined */
-   res_ndestroy(&state);
+   if (native_dns) { res_ndestroy(&state); }
 #elif defined(MONGOC_HAVE_RES_NCLOSE)
    /* defined on Linux, and only if MONGOC_HAVE_RES_NSEARCH is defined */
-   res_nclose(&state);
+   if (native_dns) { res_nclose(&state); }
 #endif
    RETURN(dns_success && callback_success);
 }
@@ -656,7 +663,7 @@ mongoc_client_connect_tcp(int32_t connecttimeoutms, const mongoc_host_list_t *ho
    hints.ai_protocol = 0;
 
    TRACE("DNS lookup for %s", host->host);
-   s = getaddrinfo(host->host, portstr, &hints, &result);
+   s = mongoc_runtime_getaddrinfo(host->host, portstr, &hints, &result);
 
    if (s != 0) {
       mongoc_counter_dns_failure_inc();

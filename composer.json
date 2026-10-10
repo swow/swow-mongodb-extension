@@ -1,6 +1,6 @@
 {
-  "name": "mongodb/mongodb-extension",
-  "description": "MongoDB driver extension",
+  "name": "swow/mongodb-extension",
+  "description": "MongoDB driver extension with a native cooperative runtime interface",
   "type": "php-ext",
   "keywords": ["database", "driver", "mongodb", "persistence"],
   "homepage": "https://jira.mongodb.org/browse/PHPC",

@@ -82,3 +82,6 @@ secrets-export.sh
 
 !.gitignore
 !.gitattributes
+
+!src/libmongoc/src/common/src/mlib/config.h
+!src/libmongoc/src/libbson/src/bson/config.h.in

@@ -1,0 +1,455 @@
+/*
+ * Copyright 2021-present MongoDB, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#include "bson/bson.h"
+#include "mongoc/mongoc.h"
+
+#include <php.h>
+#include <Zend/zend_exceptions.h>
+#include <Zend/zend_interfaces.h>
+#include <Zend/zend_operators.h>
+
+#include "phongo.h"
+#include "phongo_apm.h"
+#include "phongo_error.h"
+
+ZEND_EXTERN_MODULE_GLOBALS(mongodb)
+
+/* Ensures that instances of @subscriber_ce in @from (those registered with a
+ * Manager or globally) are added to the set @to. This is used to build the list
+ * of subscribers to notify for an event. */
+static void phongo_apm_add_subscribers_to_notify(zend_class_entry* subscriber_ce, HashTable* from, HashTable* to)
+{
+	zval* subscriber;
+
+	ZEND_HASH_FOREACH_VAL_IND(from, subscriber)
+	{
+		if (Z_TYPE_P(subscriber) != IS_OBJECT || !instanceof_function(Z_OBJCE_P(subscriber), subscriber_ce)) {
+			continue;
+		}
+
+		if (zend_hash_index_exists(to, Z_OBJ_HANDLE_P(subscriber))) {
+			continue;
+		}
+
+		zend_hash_index_update(to, Z_OBJ_HANDLE_P(subscriber), subscriber);
+		Z_ADDREF_P(subscriber);
+	}
+	ZEND_HASH_FOREACH_END();
+}
+
+/* Returns a newly allocated HashTable, which will contain all subscribers of a
+ * certain type that should be notified for an event on the specified client. */
+static HashTable* phongo_apm_get_subscribers_to_notify(zend_class_entry* subscriber_ce, mongoc_client_t* client)
+{
+	HashTable* subscribers = NULL;
+
+	ALLOC_HASHTABLE(subscribers);
+	zend_hash_init(subscribers, 0, NULL, ZVAL_PTR_DTOR, 0);
+
+	if (MONGODB_G(subscribers)) {
+		phongo_apm_add_subscribers_to_notify(subscriber_ce, MONGODB_G(subscribers), subscribers);
+	}
+
+	if (MONGODB_G(managers)) {
+		phongo_manager_t* manager;
+
+		ZEND_HASH_FOREACH_PTR(MONGODB_G(managers), manager)
+		{
+			if (manager->client == client && manager->subscribers) {
+				phongo_apm_add_subscribers_to_notify(subscriber_ce, manager->subscribers, subscribers);
+			}
+		}
+		ZEND_HASH_FOREACH_END();
+	}
+
+	return subscribers;
+}
+
+/* Dispatch an event to all subscribers in a HashTable. The caller is
+ * responsible for ensuring that subscribers implement the correct interface. */
+static void phongo_apm_dispatch_event(HashTable* subscribers, const char* function_name, zval* event)
+{
+	zval* subscriber;
+
+	ZEND_HASH_FOREACH_VAL_IND(subscribers, subscriber)
+	{
+		if (EG(exception)) {
+			break;
+		}
+
+		/* We can't use the zend_call_method_with_1_params macro here, as it
+		 * assumes the function name is a string literal. */
+		zend_call_method(Z_OBJ_P(subscriber), NULL, NULL, function_name, strlen(function_name), NULL, 1, event, NULL);
+	}
+	ZEND_HASH_FOREACH_END();
+}
+
+static void phongo_apm_command_started(const mongoc_apm_command_started_t* event)
+{
+	mongoc_client_t* client;
+	HashTable*       subscribers;
+	zval             z_event;
+
+	client      = mongoc_apm_command_started_get_context(event);
+	subscribers = phongo_apm_get_subscribers_to_notify(phongo_commandsubscriber_ce, client);
+
+	/* Return early if there are no APM subscribers to notify */
+	if (zend_hash_num_elements(subscribers) == 0) {
+		goto cleanup;
+	}
+
+	phongo_commandstartedevent_init(&z_event, event);
+
+	phongo_apm_dispatch_event(subscribers, "commandStarted", &z_event);
+	zval_ptr_dtor(&z_event);
+
+cleanup:
+	zend_hash_release(subscribers);
+}
+
+static void phongo_apm_command_succeeded(const mongoc_apm_command_succeeded_t* event)
+{
+	mongoc_client_t* client;
+	HashTable*       subscribers;
+	zval             z_event;
+
+	client      = mongoc_apm_command_succeeded_get_context(event);
+	subscribers = phongo_apm_get_subscribers_to_notify(phongo_commandsubscriber_ce, client);
+
+	/* Return early if there are no APM subscribers to notify */
+	if (zend_hash_num_elements(subscribers) == 0) {
+		goto cleanup;
+	}
+
+	phongo_commandsucceededevent_init(&z_event, event);
+
+	phongo_apm_dispatch_event(subscribers, "commandSucceeded", &z_event);
+	zval_ptr_dtor(&z_event);
+
+cleanup:
+	zend_hash_release(subscribers);
+}
+
+static void phongo_apm_command_failed(const mongoc_apm_command_failed_t* event)
+{
+	mongoc_client_t* client;
+	HashTable*       subscribers;
+	zval             z_event;
+
+	client      = mongoc_apm_command_failed_get_context(event);
+	subscribers = phongo_apm_get_subscribers_to_notify(phongo_commandsubscriber_ce, client);
+
+	/* Return early if there are no APM subscribers to notify */
+	if (zend_hash_num_elements(subscribers) == 0) {
+		goto cleanup;
+	}
+
+	phongo_commandfailedevent_init(&z_event, event);
+	phongo_apm_dispatch_event(subscribers, "commandFailed", &z_event);
+	zval_ptr_dtor(&z_event);
+
+cleanup:
+	zend_hash_release(subscribers);
+}
+
+static void phongo_apm_server_changed(const mongoc_apm_server_changed_t* event)
+{
+	mongoc_client_t* client;
+	HashTable*       subscribers;
+	zval             z_event;
+
+	client      = mongoc_apm_server_changed_get_context(event);
+	subscribers = phongo_apm_get_subscribers_to_notify(phongo_sdamsubscriber_ce, client);
+
+	/* Return early if there are no APM subscribers to notify */
+	if (zend_hash_num_elements(subscribers) == 0) {
+		goto cleanup;
+	}
+
+	phongo_serverchangedevent_init(&z_event, event);
+	phongo_apm_dispatch_event(subscribers, "serverChanged", &z_event);
+	zval_ptr_dtor(&z_event);
+
+cleanup:
+	zend_hash_release(subscribers);
+}
+
+static void phongo_apm_server_closed(const mongoc_apm_server_closed_t* event)
+{
+	mongoc_client_t* client;
+	HashTable*       subscribers;
+	zval             z_event;
+
+	client      = mongoc_apm_server_closed_get_context(event);
+	subscribers = phongo_apm_get_subscribers_to_notify(phongo_sdamsubscriber_ce, client);
+
+	/* Return early if there are no APM subscribers to notify */
+	if (zend_hash_num_elements(subscribers) == 0) {
+		goto cleanup;
+	}
+
+	phongo_serverclosedevent_init(&z_event, event);
+	phongo_apm_dispatch_event(subscribers, "serverClosed", &z_event);
+	zval_ptr_dtor(&z_event);
+
+cleanup:
+	zend_hash_release(subscribers);
+}
+
+static void phongo_apm_server_heartbeat_failed(const mongoc_apm_server_heartbeat_failed_t* event)
+{
+	mongoc_client_t* client;
+	HashTable*       subscribers;
+	zval             z_event;
+
+	client      = mongoc_apm_server_heartbeat_failed_get_context(event);
+	subscribers = phongo_apm_get_subscribers_to_notify(phongo_sdamsubscriber_ce, client);
+
+	/* Return early if there are no APM subscribers to notify */
+	if (zend_hash_num_elements(subscribers) == 0) {
+		goto cleanup;
+	}
+
+	phongo_serverheartbeatfailedevent_init(&z_event, event);
+	phongo_apm_dispatch_event(subscribers, "serverHeartbeatFailed", &z_event);
+	zval_ptr_dtor(&z_event);
+
+cleanup:
+	zend_hash_release(subscribers);
+}
+
+static void phongo_apm_server_heartbeat_succeeded(const mongoc_apm_server_heartbeat_succeeded_t* event)
+{
+	mongoc_client_t* client;
+	HashTable*       subscribers;
+	zval             z_event;
+
+	client      = mongoc_apm_server_heartbeat_succeeded_get_context(event);
+	subscribers = phongo_apm_get_subscribers_to_notify(phongo_sdamsubscriber_ce, client);
+
+	/* Return early if there are no APM subscribers to notify */
+	if (zend_hash_num_elements(subscribers) == 0) {
+		goto cleanup;
+	}
+
+	phongo_serverheartbeatsucceededevent_init(&z_event, event);
+	phongo_apm_dispatch_event(subscribers, "serverHeartbeatSucceeded", &z_event);
+	zval_ptr_dtor(&z_event);
+
+cleanup:
+	zend_hash_release(subscribers);
+}
+
+static void phongo_apm_server_heartbeat_started(const mongoc_apm_server_heartbeat_started_t* event)
+{
+	mongoc_client_t* client;
+	HashTable*       subscribers;
+	zval             z_event;
+
+	client      = mongoc_apm_server_heartbeat_started_get_context(event);
+	subscribers = phongo_apm_get_subscribers_to_notify(phongo_sdamsubscriber_ce, client);
+
+	/* Return early if there are no APM subscribers to notify */
+	if (zend_hash_num_elements(subscribers) == 0) {
+		goto cleanup;
+	}
+
+	phongo_serverheartbeatstartedevent_init(&z_event, event);
+	phongo_apm_dispatch_event(subscribers, "serverHeartbeatStarted", &z_event);
+	zval_ptr_dtor(&z_event);
+
+cleanup:
+	zend_hash_release(subscribers);
+}
+
+static void phongo_apm_server_opening(const mongoc_apm_server_opening_t* event)
+{
+	mongoc_client_t* client;
+	HashTable*       subscribers;
+	zval             z_event;
+
+	client      = mongoc_apm_server_opening_get_context(event);
+	subscribers = phongo_apm_get_subscribers_to_notify(phongo_sdamsubscriber_ce, client);
+
+	/* Return early if there are no APM subscribers to notify */
+	if (zend_hash_num_elements(subscribers) == 0) {
+		goto cleanup;
+	}
+
+	phongo_serveropeningevent_init(&z_event, event);
+	phongo_apm_dispatch_event(subscribers, "serverOpening", &z_event);
+	zval_ptr_dtor(&z_event);
+
+cleanup:
+	zend_hash_release(subscribers);
+}
+
+static void phongo_apm_topology_changed(const mongoc_apm_topology_changed_t* event)
+{
+	mongoc_client_t* client;
+	HashTable*       subscribers;
+	zval             z_event;
+
+	client      = mongoc_apm_topology_changed_get_context(event);
+	subscribers = phongo_apm_get_subscribers_to_notify(phongo_sdamsubscriber_ce, client);
+
+	/* Return early if there are no APM subscribers to notify */
+	if (zend_hash_num_elements(subscribers) == 0) {
+		goto cleanup;
+	}
+
+	phongo_topologychangedevent_init(&z_event, event);
+	phongo_apm_dispatch_event(subscribers, "topologyChanged", &z_event);
+	zval_ptr_dtor(&z_event);
+
+cleanup:
+	zend_hash_release(subscribers);
+}
+
+static void phongo_apm_topology_closed(const mongoc_apm_topology_closed_t* event)
+{
+	mongoc_client_t* client;
+	HashTable*       subscribers;
+	zval             z_event;
+
+	client      = mongoc_apm_topology_closed_get_context(event);
+	subscribers = phongo_apm_get_subscribers_to_notify(phongo_sdamsubscriber_ce, client);
+
+	/* Return early if there are no APM subscribers to notify */
+	if (zend_hash_num_elements(subscribers) == 0) {
+		goto cleanup;
+	}
+
+	phongo_topologyclosedevent_init(&z_event, event);
+	phongo_apm_dispatch_event(subscribers, "topologyClosed", &z_event);
+	zval_ptr_dtor(&z_event);
+
+cleanup:
+	zend_hash_release(subscribers);
+}
+
+static void phongo_apm_topology_opening(const mongoc_apm_topology_opening_t* event)
+{
+	mongoc_client_t* client;
+	HashTable*       subscribers;
+	zval             z_event;
+
+	client      = mongoc_apm_topology_opening_get_context(event);
+	subscribers = phongo_apm_get_subscribers_to_notify(phongo_sdamsubscriber_ce, client);
+
+	/* Return early if there are no APM subscribers to notify */
+	if (zend_hash_num_elements(subscribers) == 0) {
+		goto cleanup;
+	}
+
+	phongo_topologyopeningevent_init(&z_event, event);
+	phongo_apm_dispatch_event(subscribers, "topologyOpening", &z_event);
+	zval_ptr_dtor(&z_event);
+
+cleanup:
+	zend_hash_release(subscribers);
+}
+
+/* Assigns APM callbacks to a client, which will notify any global or per-client
+ * subscribers. This should be called for all clients created by the driver.
+ * Returns true on success; otherwise, throws an exception and returns false. */
+bool phongo_apm_set_callbacks(mongoc_client_t* client)
+{
+	bool retval;
+
+	mongoc_apm_callbacks_t* callbacks = mongoc_apm_callbacks_new();
+
+	mongoc_apm_set_command_started_cb(callbacks, phongo_apm_command_started);
+	mongoc_apm_set_command_succeeded_cb(callbacks, phongo_apm_command_succeeded);
+	mongoc_apm_set_command_failed_cb(callbacks, phongo_apm_command_failed);
+	mongoc_apm_set_server_changed_cb(callbacks, phongo_apm_server_changed);
+	mongoc_apm_set_server_closed_cb(callbacks, phongo_apm_server_closed);
+	mongoc_apm_set_server_heartbeat_failed_cb(callbacks, phongo_apm_server_heartbeat_failed);
+	mongoc_apm_set_server_heartbeat_succeeded_cb(callbacks, phongo_apm_server_heartbeat_succeeded);
+	mongoc_apm_set_server_heartbeat_started_cb(callbacks, phongo_apm_server_heartbeat_started);
+	mongoc_apm_set_server_opening_cb(callbacks, phongo_apm_server_opening);
+	mongoc_apm_set_topology_changed_cb(callbacks, phongo_apm_topology_changed);
+	mongoc_apm_set_topology_closed_cb(callbacks, phongo_apm_topology_closed);
+	mongoc_apm_set_topology_opening_cb(callbacks, phongo_apm_topology_opening);
+
+	retval = mongoc_client_set_apm_callbacks(client, callbacks, client);
+
+	if (!retval) {
+		phongo_throw_exception(PHONGO_ERROR_UNEXPECTED_VALUE, "Failed to set APM callbacks");
+	}
+
+	mongoc_apm_callbacks_destroy(callbacks);
+
+	return retval;
+}
+
+/* Checks args for adding/removing a subscriber. Returns true on success;
+ * otherwise, throws an exception and returns false. */
+static bool phongo_apm_check_args_for_add_and_remove(HashTable* subscribers, zval* subscriber)
+{
+	if (!subscribers) {
+		phongo_throw_exception(PHONGO_ERROR_UNEXPECTED_VALUE, "Subscriber HashTable is not initialized");
+		return false;
+	}
+
+	if (!subscriber || Z_TYPE_P(subscriber) != IS_OBJECT || !instanceof_function(Z_OBJCE_P(subscriber), phongo_subscriber_ce)) {
+		phongo_throw_exception(PHONGO_ERROR_UNEXPECTED_VALUE, "Subscriber is not an instance of %s", ZSTR_VAL(phongo_subscriber_ce->name));
+		return false;
+	}
+
+	return true;
+}
+
+/* Adds a subscriber to the HashTable (global or Manager). Returns true on
+ * success (including NOP if already registered); otherwise, throws an exception
+ * and returns false. */
+bool phongo_apm_add_subscriber(HashTable* subscribers, zval* subscriber)
+{
+	if (!phongo_apm_check_args_for_add_and_remove(subscribers, subscriber)) {
+		/* Exception should already have been thrown */
+		return false;
+	}
+
+	/* NOP if the subscriber was already registered */
+	if (zend_hash_index_exists(subscribers, Z_OBJ_HANDLE_P(subscriber))) {
+		return true;
+	}
+
+	zend_hash_index_update(subscribers, Z_OBJ_HANDLE_P(subscriber), subscriber);
+	Z_ADDREF_P(subscriber);
+
+	return true;
+}
+
+/* Removes a subscriber from the HashTable (global or Manager). Returns true on
+ * success (including NOP if never registered); otherwise, throws an exception
+ * and returns false. */
+bool phongo_apm_remove_subscriber(HashTable* subscribers, zval* subscriber)
+{
+	if (!phongo_apm_check_args_for_add_and_remove(subscribers, subscriber)) {
+		/* Exception should already have been thrown */
+		return false;
+	}
+
+	/* Note: HashTables should specify ZVAL_PTR_DTOR as their element destructor
+	 * so there is no need to decrement the subscriber's reference count here.
+	 * We also don't care about whether zend_hash_index_del returns SUCCESS or
+	 * FAILURE, as removing an unregistered subscriber is a NOP. */
+	zend_hash_index_del(subscribers, Z_OBJ_HANDLE_P(subscriber));
+
+	return true;
+}

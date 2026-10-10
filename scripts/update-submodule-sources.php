@@ -1,0 +1,69 @@
+<?php
+
+$vars = [
+    'PHP_MONGODB_COMMON_SOURCES' => 'src/libmongoc/src/common/src',
+    'PHP_MONGODB_KMS_MESSAGE_SOURCES' => 'src/libmongoc/src/kms-message/src',
+    'PHP_MONGODB_BSON_SOURCES' => 'src/libmongoc/src/libbson/src/bson',
+    'PHP_MONGODB_JSONSL_SOURCES' => 'src/libmongoc/src/libbson/src/jsonsl',
+    'PHP_MONGODB_MONGOC_SOURCES' => 'src/libmongoc/src/libmongoc/src/mongoc',
+    'PHP_MONGODB_UTF8PROC_SOURCES' => 'src/libmongoc/src/utf8proc-2.11.3',
+    'PHP_MONGODB_ZLIB_SOURCES' => 'src/libmongoc/src/zlib-1.3.1',
+    // Note: src/libmongoc/src/common/src/mlib does not contain source files (as of libmongoc 2.0.1)
+    'PHP_MONGODB_MONGOCRYPT_SOURCES' => 'src/libmongocrypt/src',
+    'PHP_MONGODB_MONGOCRYPT_CRYPTO_SOURCES' => 'src/libmongocrypt/src/crypto',
+    'PHP_MONGODB_MONGOCRYPT_OS_POSIX_SOURCES' => 'src/libmongocrypt/src/os_posix',
+    'PHP_MONGODB_MONGOCRYPT_OS_WIN_SOURCES' => 'src/libmongocrypt/src/os_win',
+    'PHP_MONGODB_MONGOCRYPT_UNICODE_SOURCES' => 'src/libmongocrypt/src/unicode',
+    'PHP_MONGODB_MONGOCRYPT_KMS_MESSAGE_SOURCES' => 'src/libmongocrypt/kms-message/src',
+    // Note: src/libmongocrypt/src/mlib does not contain source files (as of libmongocrypt 1.14.0)
+];
+
+$patterns = [];
+$replacements = [];
+
+// Paths are relative to the project root directory
+chdir(__DIR__ . '/..');
+
+foreach ($vars as $var => $path) {
+    $files = glob($path . '/*.c');
+
+    if ($files === false) {
+        $files = [];
+    }
+
+    // Keep only the file names (drop the directory prefix) and sort them.
+    // Compare only alphanumeric characters to match "LC_ALL=C sort -d" so the
+    // generated lists keep the same order without relying on GNU coreutils.
+    $basenames = array_map('basename', $files);
+    usort($basenames, static function (string $a, string $b): int {
+        return preg_replace('/[^A-Za-z0-9]/', '', $a) <=> preg_replace('/[^A-Za-z0-9]/', '', $b) ?: $a <=> $b;
+    });
+
+    $files = implode(' ', $basenames);
+
+    // Note: utf8proc_data.c is included from utf8proc.c and should not be compiled directly
+    if ($var === 'PHP_MONGODB_UTF8PROC_SOURCES') {
+        $files = trim(str_replace('utf8proc_data.c', '', $files));
+    }
+
+    $patterns[] = sprintf('/(%s=")([^"]*)(";?)/', $var);
+    $replacements[] = '$1' . $files . '$3';
+}
+
+$files = [
+    realpath(__DIR__ . '/../config.m4') => count($patterns),
+    // config.w32 does not use PHP_MONGODB_ZLIB_SOURCES (PHPC-1111)
+    realpath(__DIR__ . '/../config.w32') => count($patterns) - 1,
+];
+
+foreach ($files as $file => $expectedCount) {
+    $replaced = preg_replace($patterns, $replacements, file_get_contents($file), 1, $count);
+
+    if ($count !== $expectedCount) {
+        fprintf(STDERR, "Skipping %s: Expected %d replacements but only matched %d\n", basename($file), $expectedCount, $count);
+        continue;
+    }
+
+    printf("Updated %s\n", basename($file));
+    file_put_contents($file, $replaced);
+}

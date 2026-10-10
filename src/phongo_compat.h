@@ -1,0 +1,225 @@
+/*
+ * Copyright 2015-present MongoDB, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#ifndef PHONGO_COMPAT_H
+#define PHONGO_COMPAT_H
+
+#include <php.h>
+#include <Zend/zend_types.h>
+#include <Zend/zend_string.h>
+#include <Zend/zend_portability.h>
+
+/* Include stdbool.h as it might not have been implicitly loaded yet */
+#include <stdbool.h>
+#include "BSON/Int64.h"
+
+#ifdef PHP_WIN32
+#include "config.w32.h"
+#else
+#include <php_config.h>
+#endif
+
+#ifndef PHP_FE_END
+#define PHP_FE_END       \
+	{                    \
+		NULL, NULL, NULL \
+	}
+#endif
+
+#ifndef HASH_KEY_NON_EXISTENT
+#define HASH_KEY_NON_EXISTENT HASH_KEY_NON_EXISTANT
+#endif
+
+#if defined(__GNUC__)
+#define ARG_UNUSED __attribute__((unused))
+#else
+#define ARG_UNUSED
+#endif
+
+#if defined(__GNUC__)
+#define PHONGO_GNUC_CHECK_VERSION(major, minor) \
+	((__GNUC__ > (major)) ||                    \
+	 ((__GNUC__ == (major)) && (__GNUC_MINOR__ >= (minor))))
+#else
+#define PHONGO_GNUC_CHECK_VERSION(major, minor) 0
+#endif
+
+#if PHONGO_GNUC_CHECK_VERSION(7, 0)
+#define PHONGO_BREAK_INTENTIONALLY_MISSING __attribute__((fallthrough));
+#elif defined(__clang__) && __clang_major__ >= 12
+#define PHONGO_BREAK_INTENTIONALLY_MISSING __attribute__((fallthrough));
+#else
+#define PHONGO_BREAK_INTENTIONALLY_MISSING
+#endif
+
+#if SIZEOF_ZEND_LONG == 8
+#define PHONGO_LONG_FORMAT PRId64
+#elif SIZEOF_ZEND_LONG == 4
+#define PHONGO_LONG_FORMAT PRId32
+#else
+#error Unsupported architecture (integers are neither 32-bit nor 64-bit)
+#endif
+
+#define ADD_ASSOC_STR(_zv, _key, _value) add_assoc_string_ex(_zv, ZEND_STRL(_key), (char*) ZSTR_VAL(_value));
+#define ADD_ASSOC_STRING(_zv, _key, _value) add_assoc_string_ex(_zv, ZEND_STRL(_key), (char*) (_value));
+#define ADD_ASSOC_STRINGL(_zv, _key, _value, _len) add_assoc_stringl_ex(_zv, ZEND_STRL(_key), (char*) (_value), _len);
+#define ADD_ASSOC_STRING_EX(_zv, _key, _key_len, _value, _value_len) add_assoc_stringl_ex(_zv, _key, _key_len, (char*) (_value), _value_len);
+#define ADD_ASSOC_LONG_EX(_zv, _key, _value) add_assoc_long_ex(_zv, ZEND_STRL(_key), _value);
+#define ADD_ASSOC_ZVAL_EX(_zv, _key, _value) add_assoc_zval_ex(_zv, ZEND_STRL(_key), _value);
+#define ADD_ASSOC_ZVAL(_zv, _key, _value) add_assoc_zval(_zv, _key, _value);
+#define ADD_ASSOC_NULL_EX(_zv, _key) add_assoc_null_ex(_zv, ZEND_STRL(_key));
+#define ADD_ASSOC_BOOL_EX(_zv, _key, _value) add_assoc_bool_ex(_zv, ZEND_STRL(_key), _value);
+#define ZVAL_INT64_STRING(_zv, _value)                              \
+	do {                                                            \
+		char tmp[24];                                               \
+		int  tmp_len;                                               \
+		tmp_len = snprintf(tmp, sizeof(tmp), "%" PRId64, (_value)); \
+		ZVAL_STRINGL((_zv), tmp, tmp_len);                          \
+	} while (0)
+#define ADD_ASSOC_INT64_AS_STRING(_zv, _key, _value) \
+	do {                                             \
+		zval z_int;                                  \
+		ZVAL_INT64_STRING(&z_int, (_value));         \
+		ADD_ASSOC_ZVAL_EX((_zv), (_key), &z_int);    \
+	} while (0)
+#define ADD_NEXT_INDEX_STRINGL(_zv, _value, _len) add_next_index_stringl(_zv, _value, _len);
+#define PHONGO_RETVAL_SMART_STR(val) RETVAL_STRINGL(ZSTR_VAL((val).s), ZSTR_LEN((val).s));
+/* clang-format off */
+#define ZVAL_STATIC_INIT { { 0 } }
+/* clang-format on */
+
+#define ADD_NEXT_INDEX_INT64_OBJ(_zv, _value) \
+	do {                                      \
+		zval zchild;                          \
+		phongo_int64_new(&zchild, (_value));  \
+		add_next_index_zval((_zv), &zchild);  \
+	} while (0);
+#define ADD_ASSOC_INT64_OBJ(_zv, _key, _value)  \
+	do {                                        \
+		zval zchild;                            \
+		phongo_int64_new(&zchild, (_value));    \
+		add_assoc_zval((_zv), (_key), &zchild); \
+	} while (0);
+#if SIZEOF_ZEND_LONG == 8
+#define ADD_INDEX_INT64(_zv, _index, _value) add_index_long((_zv), (_index), (_value))
+#define ADD_NEXT_INDEX_INT64(_zv, _value) add_next_index_long((_zv), (_value))
+#define ADD_ASSOC_INT64(_zv, _key, _value) add_assoc_long((_zv), (_key), (_value))
+#define ZVAL_INT64(_zv, _value) ZVAL_LONG((_zv), (_value))
+#elif SIZEOF_ZEND_LONG == 4
+/* The following macros do not handle a false return value for phongo_int64_new.
+ * As the function currently does not return false this works fine, but will
+ * need updating if that changes. */
+#define ADD_INDEX_INT64(_zv, _index, _value)            \
+	if ((_value) > INT32_MAX || (_value) < INT32_MIN) { \
+		zval zchild;                                    \
+		phongo_int64_new(&zchild, (_value));            \
+		add_index_zval((_zv), (_index), &zchild);       \
+	} else {                                            \
+		add_index_long((_zv), (_index), (_value));      \
+	}
+#define ADD_NEXT_INDEX_INT64(_zv, _value)               \
+	if ((_value) > INT32_MAX || (_value) < INT32_MIN) { \
+		zval zchild;                                    \
+		phongo_int64_new(&zchild, (_value));            \
+		add_next_index_zval((_zv), &zchild);            \
+	} else {                                            \
+		add_next_index_long((_zv), (_value));           \
+	}
+#define ADD_ASSOC_INT64(_zv, _key, _value)              \
+	if ((_value) > INT32_MAX || (_value) < INT32_MIN) { \
+		zval zchild;                                    \
+		phongo_int64_new(&zchild, (_value));            \
+		add_assoc_zval((_zv), (_key), &zchild);         \
+	} else {                                            \
+		add_assoc_long((_zv), (_key), (_value));        \
+	}
+#define ZVAL_INT64(_zv, _value)                         \
+	if ((_value) > INT32_MAX || (_value) < INT32_MIN) { \
+		phongo_int64_new((_zv), (_value));              \
+	} else {                                            \
+		ZVAL_LONG((_zv), (_value));                     \
+	}
+#else /* SIZEOF_ZEND_LONG != 8 && SIZEOF_ZEND_LONG != 4 */
+#error Unsupported architecture (integers are neither 32-bit nor 64-bit)
+#endif /* SIZEOF_ZEND_LONG */
+
+/* Compatibility macros to override error handling logic */
+#define PHONGO_PARSE_PARAMETERS_START(min_num_args, max_num_args)               \
+	do {                                                                        \
+		zend_error_handling error_handling;                                     \
+		zend_replace_error_handling(                                            \
+			EH_THROW,                                                           \
+			phongo_exception_from_phongo_domain(PHONGO_ERROR_INVALID_ARGUMENT), \
+			&error_handling);                                                   \
+	ZEND_PARSE_PARAMETERS_START(min_num_args, max_num_args)
+
+#define PHONGO_PARSE_PARAMETERS_END()                 \
+	ZEND_PARSE_PARAMETERS_END_EX(                     \
+		zend_restore_error_handling(&error_handling); \
+		return);                                      \
+	zend_restore_error_handling(&error_handling);     \
+	}                                                 \
+	while (0)
+
+#ifndef ZEND_PARSE_PARAMETERS_NONE
+#define PHONGO_PARSE_PARAMETERS_NONE()                                          \
+	do {                                                                        \
+		zend_error_handling error_handling;                                     \
+		zend_replace_error_handling(                                            \
+			EH_THROW,                                                           \
+			phongo_exception_from_phongo_domain(PHONGO_ERROR_INVALID_ARGUMENT), \
+			&error_handling);                                                   \
+		if (zend_parse_parameters_none() == FAILURE) {                          \
+			zend_restore_error_handling(&error_handling);                       \
+			return;                                                             \
+		}                                                                       \
+		zend_restore_error_handling(&error_handling);                           \
+	} while (0)
+#else
+#define PHONGO_PARSE_PARAMETERS_NONE()                                          \
+	do {                                                                        \
+		zend_error_handling error_handling;                                     \
+		zend_replace_error_handling(                                            \
+			EH_THROW,                                                           \
+			phongo_exception_from_phongo_domain(PHONGO_ERROR_INVALID_ARGUMENT), \
+			&error_handling);                                                   \
+		if (UNEXPECTED(ZEND_NUM_ARGS() != 0)) {                                 \
+			zend_wrong_parameters_none_error();                                 \
+			zend_restore_error_handling(&error_handling);                       \
+			return;                                                             \
+		}                                                                       \
+		zend_restore_error_handling(&error_handling);                           \
+	} while (0)
+#endif
+
+zend_bool phongo_zend_hash_apply_protection_begin(HashTable* ht);
+zend_bool phongo_zend_hash_apply_protection_end(HashTable* ht);
+
+/* zend_get_object_type_case functions were introduced in PHP 8.2 */
+#if PHP_VERSION_ID < 80200
+const char* zend_get_object_type_case(const zend_class_entry* ce, zend_bool upper_case);
+#define zend_get_object_type(ce) zend_get_object_type_case((ce), false)
+#define zend_get_object_type_uc(ce) zend_get_object_type_case((ce), true)
+#endif /* PHP_VERSION_ID < 80200 */
+
+/* zend_object_iterator_funcs.valid return type changed to zend_result in PHP 8.4 */
+#if PHP_VERSION_ID < 80400
+#define PHONGO_ITERATOR_VALID_RESULT int
+#else
+#define PHONGO_ITERATOR_VALID_RESULT zend_result
+#endif
+
+#endif /* PHONGO_COMPAT_H */

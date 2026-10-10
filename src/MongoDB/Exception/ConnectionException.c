@@ -1,0 +1,27 @@
+/*
+ * Copyright 2014-present MongoDB, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#include <php.h>
+
+#include "phongo.h"
+#include "ConnectionException_arginfo.h"
+
+zend_class_entry* phongo_connectionexception_ce;
+
+void phongo_connectionexception_init_ce(INIT_FUNC_ARGS)
+{
+	phongo_connectionexception_ce = register_class_MongoDB_Driver_Exception_ConnectionException(phongo_runtimeexception_ce);
+}

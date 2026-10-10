@@ -1,0 +1,84 @@
+.deps
+*.dep
+*.lo
+*.la
+.libs
+*/.*
+acinclude.m4
+aclocal.m4
+autom4te.cache
+/build
+config.guess
+config.h
+config.h.in
+config.log
+config.nice
+config.status
+config.sub
+configure
+configure.ac
+configure.in
+include
+install-sh
+libtool
+ltmain.sh
+Makefile
+Makefile.fragments
+Makefile.global
+Makefile.objects
+missing
+mkinstalldirs
+modules
+run-tests.php
+tags
+.lvimrc
+mongocryptd.pid
+
+# phpt leftovers
+*.diff
+*.exp
+*.log
+*.out
+*.mem
+*.php
+!scripts/*php
+!*.stub.php
+tests/*/*.sh
+tests/*/*/*/*.sh
+tests/*/*/*/*/*.sh
+php.ini
+*.patch
+*.swp
+.*
+!.github/
+!tests/utils/*.php
+!.evergreen
+
+
+!scripts
+
+# Run tests
+tmp-php.ini
+failed.txt
+
+# Release files
+!bin/*.php
+package.xml
+mongodb-*tgz
+
+# Coverage files
+coverage*
+
+# drivers-evergreen-tools secrets handling
+secrets-export.sh
+
+# temporary purls file
+/purls.txt
+
+# Claude local config
+!.claude/
+.claude/settings.local.json
+.claude/agent-memory-local
+
+!.gitignore
+!.gitattributes

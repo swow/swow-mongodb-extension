@@ -7,7 +7,9 @@ MongoDB\Driver\Command tailable cursor iteration with maxAwaitTimeMS option
 <?php skip_if_not_clean(); ?>
 --FILE--
 <?php
+// Modified by Swow to verify the server wait limit without a client scheduling deadline.
 require_once __DIR__ . "/../utils/basic.inc";
+require_once __DIR__ . "/../utils/observer.php";
 $manager = create_test_manager();
 
 $manager->executeCommand(DATABASE_NAME, new MongoDB\Driver\Command([
@@ -50,9 +52,21 @@ printf("Waited for %.6f seconds\n", microtime(true) - $startTime);
 
 $startTime = microtime(true);
 echo "Awaiting results...\n";
-$it->next();
+(new CommandObserver)->observe(
+    function () use ($it): void {
+        $it->next();
+    },
+    function (stdClass $command): void {
+        if (isset($command->getMore)) {
+            // The option bounds server waiting; client timing also includes scheduling and transport.
+            var_dump($command->maxTimeMS === 500);
+        }
+    }
+);
 var_dump($it->current()); /* Should be NULL */
-printf("Waited for %.6f seconds\n", microtime(true) - $startTime);
+$elapsed = microtime(true) - $startTime;
+printf("Waited for %.6f seconds\n", $elapsed);
+var_dump($elapsed >= 0.4);
 
 ?>
 ===DONE===
@@ -66,6 +80,8 @@ object(stdClass)#%d (%d) {
 }
 Waited for 0.%d seconds
 Awaiting results...
+bool(true)
 NULL
-Waited for 0.%r(4|5)\d*%r seconds
+Waited for %f seconds
+bool(true)
 ===DONE===

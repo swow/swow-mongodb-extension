@@ -7,6 +7,7 @@ PHPC-1050: Command cursor should not invoke getMore at execution
 <?php skip_if_not_clean(); ?>
 --FILE--
 <?php
+// Modified by Swow to verify the server wait limit without a client scheduling deadline.
 require_once __DIR__ . "/../utils/basic.inc";
 
 class CommandLogger implements MongoDB\Driver\Monitoring\CommandSubscriber
@@ -18,6 +19,10 @@ class CommandLogger implements MongoDB\Driver\Monitoring\CommandSubscriber
         }
 
         printf("Executing command: %s\n", $event->getCommandName());
+        if ($event->getCommandName() === 'getMore') {
+            // Verify the server limit directly; elapsed client time also includes scheduling and transport.
+            printf("maxTimeMS: %d\n", $event->getCommand()->maxTimeMS);
+        }
     }
 
     public function commandSucceeded(MongoDB\Driver\Monitoring\CommandSucceededEvent $event): void
@@ -88,11 +93,13 @@ Current position is valid: no
 
 Rewinding cursor
 Executing command: getMore
-Executing command took 0.%r(4|5)%r%d seconds
+maxTimeMS: 500
+Executing command took %f seconds
 Current position is valid: no
 
 Advancing cursor
 Executing command: getMore
+maxTimeMS: 500
 Executing command took 0.%d seconds
 Current position is valid: yes
 

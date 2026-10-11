@@ -1,3 +1,4 @@
+// Modified by Swow to support cooperative runtime hooks.
 // vim:ft=javascript
 
 function mongodb_generate_header(inpath, outpath, replacements)

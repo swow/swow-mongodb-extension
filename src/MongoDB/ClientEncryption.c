@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+/* Modified by Swow to support cooperative runtime hooks. */
+
 #include "bson/bson.h"
 #include "mongoc/mongoc.h"
 

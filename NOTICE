@@ -1,0 +1,17 @@
+Swow MongoDB Extension
+https://github.com/swow/swow-mongodb-extension
+
+This distribution is based on the MongoDB PHP Driver and its bundled C libraries.
+Copyright notices and licenses from MongoDB, Inc. and all other upstream contributors
+remain in the source files, LICENSE, CREDITS and THIRD_PARTY_NOTICES.
+
+The Swow project modified the PHP driver and bundled libmongoc to provide an optional,
+versioned cooperative runtime interface and native-client operation protection.
+The PHP module name, protocol, BSON processing, native transport ownership and original
+client persistence remain with the driver. This is not an official MongoDB release.
+
+The source includes third-party software with its original notices and licenses.
+See src/libmongoc/COPYING, src/libmongoc/THIRD_PARTY_NOTICES and
+src/libmongocrypt/LICENSE, in addition to licenses retained in individual source files.
+
+This product includes PHP software, freely available from http://www.php.net/software/.

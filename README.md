@@ -1,144 +1,79 @@
-# MongoDB PHP Driver
+# Swow MongoDB Extension
 
-[![Tests](https://github.com/mongodb/mongo-php-driver/actions/workflows/tests.yml/badge.svg)](https://github.com/mongodb/mongo-php-driver/actions/workflows/tests.yml)
-[![Coverage Status](https://coveralls.io/repos/github/mongodb/mongo-php-driver/badge.svg?branch=master)](https://coveralls.io/github/mongodb/mongo-php-driver?branch=master)
-[![Coding Standards](https://github.com/mongodb/mongo-php-driver/actions/workflows/clang-format.yml/badge.svg)](https://github.com/mongodb/mongo-php-driver/actions/workflows/clang-format.yml)
+[![Tests](https://github.com/swow/swow-mongodb-extension/actions/workflows/tests.yml/badge.svg)](https://github.com/swow/swow-mongodb-extension/actions/workflows/tests.yml)
+[![Packagist](https://img.shields.io/packagist/v/swow/swow-mongodb-extension.svg)](https://packagist.org/packages/swow/swow-mongodb-extension)
 
-This extension is developed atop the
-[libmongoc](https://github.com/mongodb/mongo-c-driver) and
-[libbson](https://github.com/mongodb/libbson) libraries. It provides a minimal
-API for core driver functionality: commands, queries, writes, connection
-management, and BSON serialization.
-
-Userland PHP libraries that depend on this extension may provide higher level
-APIs, such as query builders, individual command helper methods, and GridFS.
-Application developers should consider using this extension in conjunction with
-the [MongoDB PHP library](https://github.com/mongodb/mongo-php-library), which
-implements the same higher level APIs found in MongoDB drivers for other
-languages.
-
-## Documentation
-
- - https://www.php.net/mongodb
- - https://www.mongodb.com/docs/drivers/php-drivers/
+The MongoDB PHP driver with cooperative I/O hooks for [Swow](https://github.com/swow/swow).
+This is a Swow-maintained distribution, not an official MongoDB release. It retains the
+`mongodb` module, official PHP API, native sockets/TLS, BSON processing, client persistence
+and object ownership. Without an active runtime provider, the driver uses native waits.
 
 ## Installation
 
-### With pie
+Use [PIE](https://github.com/php/pie) to install a matched release pair:
 
-To install this extension, you need [pie](https://github.com/php/pie) installed on your system. `pie` is a modern tool for managing PHP extensions.
-
-Install the [`mongodb/mongodb-extension`](https://packagist.org/packages/mongodb/mongodb-extension) package from Packagist using the following command:
-
-```shell
-pie install mongodb/mongodb-extension
+```sh
+pie install swow/swow-extension swow/swow-mongodb-extension --enable-swow-mongodb
 ```
 
-This will automatically download, build, and enable the MongoDB extension for your PHP installation.
+This installs two ordinary modules, `swow` and `mongodb`. It does not embed MongoDB into Swow.
+Linux and macOS use the usual PHP extension build tools. Windows uses matching release DLLs.
+No separate libmongoc, libbson or libmongocrypt installation is required.
+This command requires published versions of both packages containing the runtime interface;
+the development branch alone is not a stable release.
 
-Add a version constraint after the extension name to restrict can be installed:
+Replace an existing official `mongodb` binary when installing this distribution: both provide
+the same module and must not be loaded together. Stock system libmongoc is not supported
+because it does not contain the runtime interface.
 
-```shell
-pie install mongodb/mongodb-extension:^2.1.0
+Continue using the official high-level PHP library:
+
+```sh
+composer require mongodb/mongodb
 ```
 
-The constraint `^2.1.0` will install the latest version `>= 2.1.0 < 3.0.0-dev`.
+## Concurrency
 
+The hook lets other coroutines execute while MongoDB waits for I/O. Operations on the same
+native client are protected and execute serially; independent native clients can overlap.
+Managers with identical URI/options may share a persistent native client, as upstream.
 
-For more details on using `pie`, see the [pie documentation](https://github.com/php/pie).
+Applications needing several concurrent operations should lease independent clients from
+their existing framework pool. Pool members can use the official `disableClientPersistence`
+driver option and retain their Client objects for reuse. This extension does not implement
+a pool, replace PHP classes or change Session/Cursor ownership. A shared Session or Cursor
+is still a stateful object, not an independent operation for each coroutine.
 
-### with pecl
+## Development and Releases
 
-> [!NOTE]
-> Using pecl to install extensions is deprecated.
+See [CONTRIBUTING.md](CONTRIBUTING.md). The GitHub Actions workflow builds on Linux, macOS and
+Windows, runs the upstream PHPT suite without Swow, and runs the existing Swow MongoDB hook
+tests against a real isolated server. Skipped hook tests do not count as successful verification.
 
-To build and install the extension:
+The earlier full upstream suite with Swow loaded has a known object-number difference in
+`tests/query/bug2457-001.phpt`, also reproduced with unmodified Swow. It is not reported as a pass.
+The baseline and hook-specific suite do not prove complete compatibility for every callback
+or shared application object.
 
-```shell
-pecl install mongodb
-echo "extension=mongodb.so" >> `php --ini | grep "Loaded Configuration" | sed -e "s|.*:\s*||"`
-```
+Repository conventions follow Swow: `ci` is the development branch, `develop` is the release
+branch, and commits use imperative English titles with linear history. `tools/versions.php`
+defines the distribution version, upstream source and exact Swow integration revision.
+`composer prepare-release` generates the extension version header. A matching `v<version>`
+tag triggers PIE-compatible source and Windows asset builds.
 
-The MongoDB PHP Driver follows [semantic versioning](https://semver.org/) for its releases.
+The source package contains expanded dependencies and license notices. Packaging uses
+committed files and excludes CI configuration, local plans, build products and agent instructions.
+Integration issues belong in [this repository](https://github.com/swow/swow-mongodb-extension/issues).
+Driver API documentation remains on [PHP.net](https://www.php.net/mongodb) and
+[MongoDB's documentation](https://www.mongodb.com/docs/drivers/php-drivers/).
 
-Additional installation instructions may be found in the
-[PHP.net documentation](https://php.net/manual/en/mongodb.installation.php).
+## Upstream and License
 
-This extension is intended to be used alongside the
-[MongoDB PHP Library](https://github.com/mongodb/mongo-php-library), which is
-distributed as the
-[`mongodb/mongodb`](https://packagist.org/packages/mongodb/mongodb) package for
-[Composer](https://getcomposer.org).
+Based on MongoDB PHP Driver 2.5.4, upstream revision
+`7fc68847e9c8972fdf8a2b1672d54d1a2f1af55d`. The imported source package SHA-256 is
+`41eead0799cc66876b12d10b5efe86268bfc704c1be57a70d49e4bd4bf6c8ee1`.
+Bundled libmongoc/libbson are 2.5.6 and libmongocrypt is 1.20.5.
 
-## Release Integrity
-
-> [!NOTE]
-> Integrity validation is not yet supported when installing with `pie`. If you require signature verification, use the manual or PECL installation methods described below.
-
-Releases are created automatically and signed using the 
-[PHP team's GPG key](https://pgp.mongodb.com/php-driver.asc). This applies to
-the git tag as well as all release packages provided as part of a
-[GitHub release](https://github.com/mongodb/mongo-php-library/releases). To
-verify the provided packages, download the key and import it using `gpg`:
-
-```shell
-gpg --import php-driver.asc
-```
-
-### PECL package
-
-PECL packages are made available as release artifacts on GitHub, as well as on
-the [PECL homepage](https://pecl.php.net/mongodb). The GitHub release will also
-contain a detached signature file for the PECL package (named
-`mongodb-X.Y.Z.tgz.sig`).
-
-To verify the integrity of the downloaded package, run the following command:
-
-```shell
-gpg --verify mongodb-X.Y.Z.tgz.sig mongodb-X.Y.Z.tgz
-```
-
-> [!NOTE]
-> No verification is done when using `pecl` to install the package. To ensure
-> release integrity when using `pecl`, download the tarball manually from the
-> GitHub release, verify the signature, then install the package from the
-> downloaded tarball using `pecl install mongodb-X.Y.Z.tgz`.
-
-### Windows
-
-Windows binaries are distributed through GitHub releases in the form of a ZIP
-package. The GitHub release will also contain a detached signature file for the
-PECL package. To verify the integrity of the package, run the following command:
-
-```shell
-gpg --verify php_mongodb-X.Y.Z.zip.sig php_mongodb-X.Y.Z.zip
-```
-
-> [!NOTE]
-> Windows binaries distributed directly through PECL are not signed by MongoDB
-> and cannot be verified. If you need to verify the integrity of the downloaded
-> binary, always download them from the GitHub release.
-
-## Reporting Issues
-
-Issues pertaining to the extension should be reported in the
-[PHPC](https://jira.mongodb.org/secure/CreateIssue!default.jspa?project-field=PHPC)
-project in MongoDB's JIRA. Library-related issues should be reported in the
-[PHPLIB](https://jira.mongodb.org/secure/CreateIssue!default.jspa?project-field=PHPLIB)
-project.
-
-For general questions and support requests, please use one of MongoDB's
-[Technical Support](https://docs.mongodb.com/manual/support/) channels.
-
-### Security Vulnerabilities
-
-If you've identified a security vulnerability in a driver or any other MongoDB
-project, please report it according to the instructions in
-[Create a Vulnerability Report](https://docs.mongodb.org/manual/tutorial/create-a-vulnerability-report).
-
-## Development
-
-Development is tracked in the
-[PHPC](https://jira.mongodb.org/projects/PHPC/summary) project in MongoDB's
-JIRA. Documentation for contributing to this project may be found in
-[CONTRIBUTING.md](CONTRIBUTING.md).
+The driver and Swow changes are distributed under Apache-2.0. Preserve [LICENSE](LICENSE),
+[NOTICE](NOTICE), [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES) and individual dependency notices.
+Third-party code retains its original license and copyright. See [CREDITS](CREDITS) for upstream contributors.

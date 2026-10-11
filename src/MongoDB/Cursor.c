@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+/* Modified by Swow to support cooperative runtime hooks. */
+
 #include <php.h>
 #include <ext/spl/spl_iterators.h>
 #include <Zend/zend_interfaces.h>

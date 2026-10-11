@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+/* Modified by Swow to support cooperative runtime hooks. */
+
 #include <mongoc/mongoc-runtime.h>
 #include <mongoc/mongoc-error-private.h>
 #include <mongoc/mongoc-retry-backoff-generator-private.h>

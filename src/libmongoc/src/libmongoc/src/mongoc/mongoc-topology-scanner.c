@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+/* Modified by Swow to support cooperative runtime hooks. */
+
 #include <mongoc/mongoc-runtime.h>
 #include <common-atomic-private.h>
 #include <common-string-private.h>

@@ -1,3 +1,4 @@
+# Modified by Swow to support cooperative runtime hooks.
 dnl Determine the base directory used for subsequent m4_include calls
 m4_define(PHP_MONGODB_BASEDIR, esyscmd(printf %s "$(dirname "__file__")"))
 

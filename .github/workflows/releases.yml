@@ -1,0 +1,48 @@
+name: releases
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    uses: ./.github/workflows/tests.yml
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+      - name: Check tag against generated package version
+        run: |
+          php tools/update-version.php
+          git diff --exit-code -- phongo_version.h
+          php tools/package.php
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mongodb-*
+          merge-multiple: true
+          path: dist/release
+      - name: Publish tested source and Windows assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          flags=()
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            flags+=(--prerelease)
+          fi
+          gh release create "$RELEASE_TAG" dist/release/* --verify-tag --generate-notes --title "$RELEASE_TAG" "${flags[@]}"

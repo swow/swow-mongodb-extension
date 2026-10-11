@@ -1,0 +1,97 @@
+name: installation
+
+on:
+  workflow_dispatch:
+    inputs:
+      swow-version:
+        description: Published swow/swow-extension version with the MongoDB adapter
+        required: true
+        type: string
+      mongodb-version:
+        description: Published swow/swow-mongodb-extension version
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: PIE installation on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-2022]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+          tools: pie
+          extensions: -mongodb
+      - name: Read matched Swow source revision
+        id: swow
+        shell: bash
+        run: php -r '$v = require "tools/versions.php"; echo "ref=", $v["swow-extension"]["ref"], PHP_EOL;' >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: swow/swow
+          ref: ${{ steps.swow.outputs.ref }}
+          path: swow
+          persist-credentials: false
+      - name: Setup hook test dependencies
+        working-directory: swow
+        run: composer install --no-interaction --prefer-dist --ignore-platform-reqs
+      - name: Setup Unix build dependencies
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            sudo apt-get update
+            sudo apt-get install -y autoconf pkg-config libssl-dev libsasl2-dev zlib1g-dev
+          else
+            brew install autoconf pkg-config openssl@3
+            echo "PKG_CONFIG_PATH=$(brew --prefix openssl@3)/lib/pkgconfig" >> "$GITHUB_ENV"
+          fi
+      - name: Install both modules through one PIE command
+        shell: bash
+        env:
+          SWOW_VERSION: ${{ inputs.swow-version }}
+          MONGODB_VERSION: ${{ inputs.mongodb-version }}
+        run: pie install "swow/swow-extension:$SWOW_VERSION" "swow/swow-mongodb-extension:$MONGODB_VERSION" --enable-swow-mongodb --no-interaction
+      - name: Setup real MongoDB
+        id: mongodb
+        uses: mongodb-labs/drivers-evergreen-tools@ec0b1497b3d351acbfc4fd7579bf3de4de0a1046
+        with:
+          version: '8.0'
+          topology: replica_set
+          token: ${{ github.token }}
+      - name: Verify installed modules and query
+        shell: bash
+        env:
+          MONGODB_URI: ${{ steps.mongodb.outputs.cluster-uri }}
+        run: |
+          php --ri mongodb
+          php --ri swow
+          php -r 'if (!Swow\Extension::isBuiltWith("mongodb")) { throw new RuntimeException("MongoDB adapter is not built"); } $m = new MongoDB\Driver\Manager(getenv("MONGODB_URI")); $m->executeCommand("admin", new MongoDB\Driver\Command(["ping" => 1]))->toArray();'
+      - name: Run existing hook tests using installed binaries
+        shell: bash
+        env:
+          MONGODB_URI: ${{ steps.mongodb.outputs.cluster-uri }}
+          SWOW_SOURCE_DIR: ${{ github.workspace }}/swow
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/php/php-src/PHP-8.4/run-tests.php -o run-tests.php
+          export MONGODB_EXTENSION="$(php -r 'echo ini_get("extension_dir"), DIRECTORY_SEPARATOR, PHP_OS_FAMILY === "Windows" ? "php_mongodb.dll" : "mongodb.so";')"
+          export SWOW_EXTENSION="$(php -r 'echo ini_get("extension_dir"), DIRECTORY_SEPARATOR, PHP_OS_FAMILY === "Windows" ? "php_swow.dll" : "swow.so";')"
+          php tools/test-extension.php hook
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: installation-reports-${{ runner.os }}
+          retention-days: 7
+          path: dist/reports

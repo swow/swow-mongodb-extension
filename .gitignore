@@ -95,3 +95,15 @@ secrets-export.sh
 /src/libmongocrypt/src/mongocrypt-config.h
 /configure~
 /config.h.in~
+
+# Swow development and release tooling.
+!.github/
+!.github/**
+!tools/
+!tools/*.php
+!.php-cs-fixer.dist.php
+/vendor/
+/composer.lock
+/docs/
+/dist/
+/.php-cs-fixer.cache

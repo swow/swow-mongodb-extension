@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+/* Modified by Swow to support cooperative runtime hooks. */
+
 
 #ifdef _WIN32
 #define _CRT_RAND_S

@@ -1,1 +1,10 @@
 * -text
+
+/.github export-ignore
+/AGENTS.md export-ignore
+/.gitignore export-ignore
+/.gitattributes export-ignore
+/.php-cs-fixer.dist.php export-ignore
+/docs export-ignore
+/dist export-ignore
+/vendor export-ignore

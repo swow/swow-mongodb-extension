@@ -1,0 +1,272 @@
+name: tests
+
+on:
+  push:
+    branches: [ci, develop]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      swow-ref: ${{ steps.metadata.outputs.swow-ref }}
+      version: ${{ steps.metadata.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+      - name: Check package and code style
+        run: |
+          composer install --no-interaction --prefer-dist
+          composer validate --strict
+          composer cs-check
+          composer prepare-release
+          git diff --exit-code -- phongo_version.h
+      - name: Read integration versions
+        id: metadata
+        run: |
+          php -r '$v = require "tools/versions.php"; echo "swow-ref=", $v["swow-extension"]["ref"], PHP_EOL, "version=", $v["mongodb-extension"]["version"], PHP_EOL;' >> "$GITHUB_OUTPUT"
+      - name: Package complete source
+        run: composer package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mongodb-source
+          path: |
+            dist/php_mongodb-*-src.tgz
+            dist/php_mongodb-*-src.tgz.sha256
+
+  unix-tests:
+    name: PHP ${{ matrix.php-version }} NTS on ${{ matrix.os }}
+    needs: metadata
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        php-version: ['8.1', '8.2', '8.3', '8.4', '8.5']
+    env:
+      SWOW_SOURCE_DIR: ${{ github.workspace }}/swow
+      SWOW_EXTENSION: ${{ github.workspace }}/swow/ext/modules/swow.so
+      MONGODB_EXTENSION: ${{ github.workspace }}/dist/source/modules/mongodb.so
+      PHPT_RUNNER: ${{ github.workspace }}/dist/source/run-tests.php
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: swow/swow
+          ref: ${{ needs.metadata.outputs.swow-ref }}
+          path: swow
+          persist-credentials: false
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          coverage: none
+          tools: phpize, pie
+          extensions: -mongodb, dom, simplexml, mbstring, iconv, openssl, zip
+      - name: Setup build dependencies
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            sudo apt-get update
+            sudo apt-get install -y autoconf pkg-config libssl-dev libsasl2-dev zlib1g-dev
+          else
+            brew install autoconf pkg-config openssl@3
+            echo "PKG_CONFIG_PATH=$(brew --prefix openssl@3)/lib/pkgconfig" >> "$GITHUB_ENV"
+          fi
+      - uses: actions/download-artifact@v4
+        with:
+          name: mongodb-source
+          path: dist
+      - name: Build packaged MongoDB source
+        shell: bash
+        env:
+          PACKAGE_VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          mkdir -p dist/source
+          tar -xzf "dist/php_mongodb-${PACKAGE_VERSION}-src.tgz" -C dist/source --strip-components=1
+          cd dist/source
+          phpize
+          ./configure --enable-mongodb
+          make -j$(getconf _NPROCESSORS_ONLN)
+          php -n -d "extension=$MONGODB_EXTENSION" --ri mongodb
+      - name: Build matching Swow
+        shell: bash
+        run: |
+          cd swow
+          composer install --no-interaction --prefer-dist --ignore-platform-reqs
+          cd ext
+          phpize
+          ./configure --enable-swow --enable-swow-ssl --enable-swow-mongodb
+          make -j$(getconf _NPROCESSORS_ONLN)
+          php -n -d "extension=$MONGODB_EXTENSION" -d "extension=$SWOW_EXTENSION" --ri swow
+      - name: Setup real MongoDB replica set
+        id: mongodb
+        uses: mongodb-labs/drivers-evergreen-tools@ec0b1497b3d351acbfc4fd7579bf3de4de0a1046
+        with:
+          version: '8.0'
+          topology: replica_set
+          token: ${{ github.token }}
+      - name: Run upstream PHPT suite
+        id: native-tests
+        continue-on-error: true
+        env:
+          MONGODB_URI: ${{ steps.mongodb.outputs.cluster-uri }}
+        run: php tools/test-extension.php native
+      - name: Run real coroutine hook tests
+        id: hook-tests
+        continue-on-error: true
+        env:
+          MONGODB_URI: ${{ steps.mongodb.outputs.cluster-uri }}
+        run: php tools/test-extension.php hook
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reports-${{ runner.os }}-${{ matrix.php-version }}-nts
+          retention-days: 7
+          path: |
+            dist/reports
+            tests/**/*.diff
+            tests/**/*.out
+            swow/ext/tests/swow_mongodb/*.diff
+            swow/ext/tests/swow_mongodb/*.out
+      - name: Fail if required tests failed
+        if: always() && (steps.native-tests.outcome != 'success' || steps.hook-tests.outcome != 'success')
+        run: exit 1
+
+  windows-tests:
+    name: PHP ${{ matrix.php-version }} ${{ matrix.ts }} on Windows
+    needs: metadata
+    runs-on: windows-2022
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        php-version: ['8.1', '8.2', '8.3', '8.4', '8.5']
+        ts: [nts, ts]
+    env:
+      SWOW_SOURCE_DIR: ${{ github.workspace }}/swow
+      SWOW_EXTENSION: ${{ github.workspace }}/swow/ext/x64/Release${{ matrix.ts == 'ts' && '_TS' || '' }}/php_swow.dll
+      MONGODB_EXTENSION: ${{ github.workspace }}/dist/source/x64/Release${{ matrix.ts == 'ts' && '_TS' || '' }}/php_mongodb.dll
+      PHPT_RUNNER: ${{ github.workspace }}/dist/source/run-tests.php
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: swow/swow
+          ref: ${{ needs.metadata.outputs.swow-ref }}
+          path: swow
+          persist-credentials: false
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          coverage: none
+          extensions: -mongodb, dom, simplexml, mbstring, iconv, openssl, zip
+        env:
+          phpts: ${{ matrix.ts }}
+      - name: Setup PHP-compatible Windows compiler
+        shell: pwsh
+        run: ./tools/setup-windows.ps1 -PhpVersion '${{ matrix.php-version }}' -SwowSourceDirectory $env:SWOW_SOURCE_DIR
+      - name: Setup Swow dependencies
+        working-directory: swow
+        run: composer install --no-interaction --prefer-dist --ignore-platform-reqs
+      - uses: actions/download-artifact@v4
+        with:
+          name: mongodb-source
+          path: dist
+      - name: Extract complete driver source
+        shell: pwsh
+        env:
+          PACKAGE_VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          New-Item dist/source -ItemType Directory -Force | Out-Null
+          tar -xzf "dist/php_mongodb-$env:PACKAGE_VERSION-src.tgz" -C dist/source --strip-components=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build Swow with its existing Windows builder
+        uses: ./swow/.github/workflows/winext
+        with:
+          ext-path: ./swow/ext
+          ext-name: swow
+          conf-args: --enable-swow-mongodb --enable-swow-ssl --enable-debug-pack
+          deps: openssl
+          phpts: ${{ matrix.ts == 'ts' && '1' || '0' }}
+          install: '0'
+      - name: Build MongoDB with the same Windows builder
+        id: driver-build
+        uses: ./swow/.github/workflows/winext
+        with:
+          ext-path: ./dist/source
+          ext-name: mongodb
+          conf-args: --with-mongodb-client-side-encryption=yes --enable-debug-pack
+          deps: openssl
+          phpts: ${{ matrix.ts == 'ts' && '1' || '0' }}
+          install: '0'
+      - name: Prepare matching PHP test runner
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/php/php-src/PHP-${{ matrix.php-version }}/run-tests.php' -OutFile $env:PHPT_RUNNER
+          php -n -d "extension=$env:MONGODB_EXTENSION" -d "extension=$env:SWOW_EXTENSION" --ri swow
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Setup real MongoDB replica set
+        id: mongodb
+        uses: mongodb-labs/drivers-evergreen-tools@ec0b1497b3d351acbfc4fd7579bf3de4de0a1046
+        with:
+          version: '8.0'
+          topology: replica_set
+          token: ${{ github.token }}
+      - name: Run upstream PHPT suite
+        id: native-tests
+        continue-on-error: true
+        env:
+          MONGODB_URI: ${{ steps.mongodb.outputs.cluster-uri }}
+        run: php tools/test-extension.php native
+      - name: Run real coroutine hook tests
+        id: hook-tests
+        continue-on-error: true
+        env:
+          MONGODB_URI: ${{ steps.mongodb.outputs.cluster-uri }}
+        run: php tools/test-extension.php hook
+      - name: Package PIE Windows binary
+        if: steps.native-tests.outcome == 'success' && steps.hook-tests.outcome == 'success'
+        shell: pwsh
+        run: ./tools/package-windows.ps1 -ModulePath $env:MONGODB_EXTENSION -PhpVersion '${{ matrix.php-version }}' -ThreadSafety '${{ matrix.ts }}' -Compiler '${{ steps.driver-build.outputs.vcver }}'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reports-Windows-${{ matrix.php-version }}-${{ matrix.ts }}
+          retention-days: 7
+          path: |
+            dist/reports
+            tests/**/*.diff
+            tests/**/*.out
+            swow/ext/tests/swow_mongodb/*.diff
+            swow/ext/tests/swow_mongodb/*.out
+      - uses: actions/upload-artifact@v4
+        if: steps.native-tests.outcome == 'success' && steps.hook-tests.outcome == 'success'
+        with:
+          name: mongodb-Windows-${{ matrix.php-version }}-${{ matrix.ts }}
+          path: |
+            dist/php_mongodb-*.zip
+            dist/php_mongodb-*.zip.sha256
+      - name: Fail if required tests failed
+        if: always() && (steps.native-tests.outcome != 'success' || steps.hook-tests.outcome != 'success')
+        run: exit 1

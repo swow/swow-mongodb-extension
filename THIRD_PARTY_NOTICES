@@ -1,8 +1,10 @@
 The MongoDB PHP Driver uses third-party code distributed under different licenses.
 
 The MongoDB PHP Driver uses libbson and libmongoc, which also use third-party
-code distributed under difference licenses. See src/libbson/THIRD_PARTY_NOTICES
-and src/libmongoc/THIRD_PARTY_NOTICES for additional information.
+code distributed under different licenses. See src/libmongoc/COPYING and
+src/libmongoc/THIRD_PARTY_NOTICES for additional information. The bundled
+libmongocrypt license is in src/libmongocrypt/LICENSE. Individual third-party
+source files retain their own copyright and license notices.
 
 
 License notice for php_array_api.h

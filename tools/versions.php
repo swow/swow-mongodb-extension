@@ -21,6 +21,6 @@ return [
     ],
     'swow-extension' => [
         'repository' => 'swow/swow',
-        'ref' => 'b58c16b924fd74a320fbcf6d3a4e518e4e1469ff',
+        'ref' => '0d1041870dee3cd6658fa62d1cbc76788008ac35',
     ],
 ];

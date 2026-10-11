@@ -79,7 +79,7 @@ jobs:
           php-version: ${{ matrix.php-version }}
           coverage: none
           tools: phpize, pie
-          extensions: -mongodb, dom, simplexml, mbstring, iconv, openssl, zip
+          extensions: :mongodb, dom, simplexml, mbstring, iconv, openssl, zip
       - name: Setup build dependencies
         shell: bash
         run: |
@@ -181,7 +181,7 @@ jobs:
         with:
           php-version: ${{ matrix.php-version }}
           coverage: none
-          extensions: -mongodb, dom, simplexml, mbstring, iconv, openssl, zip
+          extensions: :mongodb, dom, simplexml, mbstring, iconv, openssl, zip
         env:
           phpts: ${{ matrix.ts }}
       - name: Setup PHP-compatible Windows compiler

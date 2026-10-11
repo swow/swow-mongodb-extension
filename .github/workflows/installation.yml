@@ -33,7 +33,7 @@ jobs:
           php-version: '8.4'
           coverage: none
           tools: pie
-          extensions: -mongodb
+          extensions: :mongodb
       - name: Read matched Swow source revision
         id: swow
         shell: bash

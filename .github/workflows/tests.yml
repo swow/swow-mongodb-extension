@@ -206,6 +206,7 @@ jobs:
         with:
           ext-path: ./swow/ext
           ext-name: swow
+          phpver: ${{ matrix.php-version }}
           conf-args: --enable-swow-mongodb --enable-swow-ssl --enable-debug-pack
           deps: openssl
           phpts: ${{ matrix.ts == 'ts' && '1' || '0' }}
@@ -216,6 +217,7 @@ jobs:
         with:
           ext-path: ./dist/source
           ext-name: mongodb
+          phpver: ${{ matrix.php-version }}
           conf-args: --with-mongodb-client-side-encryption=yes --enable-debug-pack
           deps: openssl
           phpts: ${{ matrix.ts == 'ts' && '1' || '0' }}

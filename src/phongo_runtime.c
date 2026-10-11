@@ -147,7 +147,7 @@ static bool guard_acquire(phongo_runtime_guard *guard, bool cleanup)
     return true;
 }
 
-static void phongo_runtime_dispatch(INTERNAL_FUNCTION_PARAMETERS)
+static void ZEND_FASTCALL phongo_runtime_dispatch(INTERNAL_FUNCTION_PARAMETERS)
 {
     zif_handler original = (zif_handler) execute_data->func->internal_function.reserved[runtime_slot];
     phongo_runtime_guard guard = guard_for_object(Z_TYPE(execute_data->This) == IS_OBJECT ? Z_OBJ(execute_data->This) : NULL);

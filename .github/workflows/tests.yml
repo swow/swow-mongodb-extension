@@ -87,8 +87,9 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y autoconf pkg-config libssl-dev libsasl2-dev zlib1g-dev
           else
-            brew install autoconf pkg-config openssl@3
+            brew install autoconf pkg-config openssl@3 pcre2
             echo "PKG_CONFIG_PATH=$(brew --prefix openssl@3)/lib/pkgconfig" >> "$GITHUB_ENV"
+            echo "CPPFLAGS=$(pkg-config --cflags libpcre2-8)" >> "$GITHUB_ENV"
           fi
       - uses: actions/download-artifact@v4
         with:

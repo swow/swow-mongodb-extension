@@ -44,7 +44,8 @@ $testPaths = $mode === 'native' ? [$root . '/tests'] : array_map(
 );
 $arguments = [
     PHP_BINARY, $runner, '-q', '-p', PHP_BINARY, '-n', '-d', 'extension=' . $mongodb,
-    ...($mode === 'hook' ? ['-d', 'extension=' . $swow] : []),
+    // The isolated process has no PDO module; this suite exercises MongoDB only.
+    ...($mode === 'hook' ? ['-d', 'swow.hook_pdo_pgsql=0', '-d', 'extension=' . $swow] : []),
     '--show-diff', '--set-timeout', '60', '-j1', ...$testPaths,
 ];
 $process = proc_open($arguments, [STDIN, STDOUT, STDERR], $pipes, $root);
